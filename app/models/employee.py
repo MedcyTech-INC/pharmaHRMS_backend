@@ -24,6 +24,7 @@ class Employee(Base):
     zone = Column(String(50), default='AP')
     territory = Column(String(100))
     reporting_to = Column(String(255))
+    manager_id = Column(String(255))
     cl_balance = Column(Integer, default=12)
     pl_balance = Column(Integer, default=4)
     bank_details = Column(JSON, default=dict)
