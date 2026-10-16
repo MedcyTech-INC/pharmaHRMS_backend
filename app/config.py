@@ -4,7 +4,7 @@ from typing import List
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://hrms:password@localhost:5432/pharma_hrms"
+    DATABASE_URL: str
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379"

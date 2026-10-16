@@ -28,9 +28,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.routers import auth
+from app.routers import auth, employees, attendance, leaves, payroll, field, tasks, holidays
 
 app.include_router(auth.router)
+app.include_router(employees.router)
+app.include_router(attendance.router)
+app.include_router(leaves.router)
+app.include_router(payroll.router)
+app.include_router(field.router)
+app.include_router(tasks.router)
+app.include_router(holidays.router)
 
 @app.get("/api")
 async def api_root():

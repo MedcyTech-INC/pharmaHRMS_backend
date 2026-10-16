@@ -4,8 +4,10 @@ from sqlalchemy import select
 
 from app.database.session import get_db
 from app.models.employee import Employee
-from app.schemas.auth import LoginRequest, TokenResponse
-from app.utils.security import verify_password, create_access_token, create_refresh_token
+from app.schemas.auth import LoginRequest, TokenResponse, RefreshTokenRequest, TokenRefreshResponse
+from app.schemas.employee import EmployeeResponse
+from app.dependencies.auth import get_current_user
+from app.utils.security import verify_password, get_password_hash, create_access_token, create_refresh_token
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -22,15 +24,19 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Incorrect email or password",
         )
 
-    # 2. Verify Password (handles both raw Supabase passwords for now, and bcrypt)
-    # WARNING: This assumes a migration to bcrypt has not yet happened for this user
-    # If the password starts with $2b$, it's bcrypt. Otherwise, it's plain text (legacy).
+    # 2. Verify Password (with opportunistic migration to bcrypt)
     is_valid = False
-    if user.password.startswith("$2b$"):
-        is_valid = verify_password(request.password, user.password)
-    else:
-        # Legacy plain text comparison (will be removed after Alembic migration)
-        is_valid = (request.password == user.password)
+    stored_pwd = user.password or ""
+    if stored_pwd.startswith("$2b$") or stored_pwd.startswith("$2a$"):
+        is_valid = verify_password(request.password, stored_pwd)
+    elif stored_pwd:
+        # Legacy plain-text check: if valid, immediately upgrade to salted bcrypt hash
+        if request.password == stored_pwd:
+            is_valid = True
+            user.password = get_password_hash(request.password)
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
 
     if not is_valid:
         raise HTTPException(
@@ -55,3 +61,36 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         user_id=str(user.id),
         role=user.role
     )
+
+@router.get("/me", response_model=EmployeeResponse)
+async def get_current_user_profile(
+    current_user: Employee = Depends(get_current_user)
+):
+    """Return the authenticated current user's profile information."""
+    return current_user
+
+@router.post("/refresh", response_model=TokenRefreshResponse)
+async def refresh_access_token(
+    request: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate a new access token using a valid refresh token."""
+    try:
+        from jose import jwt, JWTError
+        from app.config import settings
+        payload = jwt.decode(request.refresh_token, settings.JWT_REFRESH_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        user_id: str = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+
+    stmt = select(Employee).where(Employee.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or user.status != "active":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User inactive or not found")
+
+    new_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+    return TokenRefreshResponse(access_token=new_token)
