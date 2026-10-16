@@ -1,12 +1,47 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-.env
-.venv
+
+# Virtual Environments
 venv/
+.venv/
+env/
 ENV/
 env.bak/
 venv.bak/
-.mypy_cache/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# IDEs & Code Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Testing, Coverage & Linters
 .pytest_cache/
-alembic.ini
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs & Temporary Files
+*.log
+logs/
+*.tmp
+
+# Distribution & Builds
+dist/
+build/
+*.egg-info/
+*.egg

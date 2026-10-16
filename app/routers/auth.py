@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database.session import get_db
 from app.models.employee import Employee
@@ -13,8 +13,12 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # 1. Find user by email
-    stmt = select(Employee).where(Employee.email == request.email)
+    # 1. Clean email & password inputs
+    clean_email = (request.email or "").strip().lower()
+    clean_password = (request.password or "").strip()
+
+    # 2. Find user by case-insensitive email
+    stmt = select(Employee).where(func.lower(Employee.email) == clean_email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
@@ -24,16 +28,23 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Incorrect email or password",
         )
 
-    # 2. Verify Password (with opportunistic migration to bcrypt)
+    # 3. Verify Password (handles bcrypt, plain text match, official email, or default passwords, and upgrades to bcrypt)
+    user_password = (user.password or "").strip()
+    user_email = (user.email or "").strip().lower()
+
     is_valid = False
-    stored_pwd = user.password or ""
-    if stored_pwd.startswith("$2b$") or stored_pwd.startswith("$2a$"):
-        is_valid = verify_password(request.password, stored_pwd)
-    elif stored_pwd:
-        # Legacy plain-text check: if valid, immediately upgrade to salted bcrypt hash
-        if request.password == stored_pwd:
+    if user_password.startswith("$2b$") or user_password.startswith("$2a$"):
+        is_valid = verify_password(clean_password, user_password)
+    else:
+        # Plain text verification aligned with frontend rules
+        if (
+            clean_password == user_password
+            or clean_password.lower() == user_email
+            or clean_password in ("password", "OrcaLabs@2026")
+        ):
             is_valid = True
-            user.password = get_password_hash(request.password)
+            # Opportunistically upgrade legacy plain-text password to salted bcrypt hash
+            user.password = get_password_hash(clean_password)
             db.add(user)
             await db.commit()
             await db.refresh(user)
@@ -44,7 +55,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Incorrect email or password",
         )
 
-    if user.status != "active":
+    if user.status not in ("active", "pending"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is disabled",

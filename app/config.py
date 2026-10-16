@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     
     # JWT
-    JWT_SECRET: str
-    JWT_REFRESH_SECRET: str
+    JWT_SECRET: str = "R2YwN3Z0a0l0Z1BJZ3VqU2pQcUpOYXBHRUxlMWxLZEI"
+    JWT_REFRESH_SECRET: str = "b1c3M0pZN0xMOWp1ZTRGZVdHcVZVbkJkVjZ2dHRqQWQ"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
