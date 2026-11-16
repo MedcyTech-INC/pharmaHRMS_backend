@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, or_
+from sqlalchemy import select, update, delete, or_, and_
 from typing import List, Optional, Any
 
 from app.database.session import get_db
@@ -37,14 +37,22 @@ async def list_employees(
 
     # Organizational Hierarchy Scoping: derive subordinate access server-side
     if not is_admin:
+        leadership_cond = or_(Employee.zone == "Corporate", Employee.hierarchy_level.in_(["executive", "admin"]))
         if current_user.hierarchy_level == "zsm" and current_user.zone:
-            stmt = stmt.where(Employee.zone == current_user.zone)
+            stmt = stmt.where(or_(Employee.zone == current_user.zone, leadership_cond))
         elif current_user.hierarchy_level in ["rsm", "manager"]:
+            reporters = [current_user.id]
+            if current_user.employee_code:
+                reporters.append(current_user.employee_code)
+            if current_user.name:
+                reporters.append(current_user.name)
             stmt = stmt.where(
                 or_(
-                    Employee.reporting_to == current_user.id,
+                    Employee.reporting_to.in_(reporters),
                     Employee.id == current_user.id,
-                    and_(Employee.zone == current_user.zone, Employee.hierarchy_level == "be")
+                    and_(Employee.zone == current_user.zone, Employee.hierarchy_level == "be"),
+                    and_(Employee.zone == current_user.zone, Employee.hierarchy_level == "zsm"),
+                    leadership_cond
                 )
             )
 
@@ -116,7 +124,7 @@ async def create_employee(
 
     # Initialize default leave balances
     default_balances = [
-        LeaveBalance(employee_id=emp_in.id, leave_type="sick", total_allotted=6, used=0),
+        LeaveBalance(employee_id=emp_in.id, leave_type="sick", total_allotted=4, used=0),
         LeaveBalance(employee_id=emp_in.id, leave_type="casual", total_allotted=emp_in.cl_balance or 12, used=0),
     ]
     if emp_in.gender == "female":

@@ -72,10 +72,26 @@ async def approve_leave(
         emp_res = await db.execute(emp_stmt)
         target_emp = emp_res.scalar_one_or_none()
         if target_emp:
+            valid_reporters = [approver.id]
+            if approver.employee_code:
+                valid_reporters.append(approver.employee_code)
+            if approver.name:
+                valid_reporters.append(approver.name)
+
+            is_direct = target_emp.reporting_to in valid_reporters
+            if not is_direct and target_emp.reporting_to and approver.name:
+                clean_rep = "".join(c for c in target_emp.reporting_to.lower() if c.isalnum())
+                clean_mgr = "".join(c for c in approver.name.lower() if c.isalnum())
+                if clean_rep and clean_mgr and (clean_rep in clean_mgr or clean_mgr in clean_rep):
+                    is_direct = True
+
             in_scope = (
-                target_emp.reporting_to == approver.id or
+                is_direct or
                 (approver.hierarchy_level == "zsm" and target_emp.zone == approver.zone) or
-                (approver.hierarchy_level in ["rsm", "manager"] and target_emp.territory == approver.territory)
+                (approver.hierarchy_level in ["rsm", "manager"] and (
+                    (target_emp.territory and target_emp.territory == approver.territory) or
+                    (target_emp.zone == approver.zone and target_emp.hierarchy_level == "be")
+                ))
             )
             if not in_scope:
                 raise HTTPException(
@@ -83,10 +99,10 @@ async def approve_leave(
                     detail="Not authorized to approve leave for employees outside your reporting hierarchy"
                 )
 
-    if req.status == "Approved":
+    if (req.status or "").lower() == "approved":
         return req
 
-    req.status = "Approved"
+    req.status = "approved"
     req.admin_note = body.admin_note if body else None
     req.approved_by = approver.id
 
@@ -151,15 +167,38 @@ async def reject_leave(
         (approver.id or "").upper().startswith("ADM")
     )
 
+    # 1. Prevent self-rejection
+    if req.employee_id == approver.id and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot reject your own leave request"
+        )
+
     if not is_admin:
         emp_stmt = select(Employee).where(Employee.id == req.employee_id)
         emp_res = await db.execute(emp_stmt)
         target_emp = emp_res.scalar_one_or_none()
         if target_emp:
+            valid_reporters = [approver.id]
+            if approver.employee_code:
+                valid_reporters.append(approver.employee_code)
+            if approver.name:
+                valid_reporters.append(approver.name)
+
+            is_direct = target_emp.reporting_to in valid_reporters
+            if not is_direct and target_emp.reporting_to and approver.name:
+                clean_rep = "".join(c for c in target_emp.reporting_to.lower() if c.isalnum())
+                clean_mgr = "".join(c for c in approver.name.lower() if c.isalnum())
+                if clean_rep and clean_mgr and (clean_rep in clean_mgr or clean_mgr in clean_rep):
+                    is_direct = True
+
             in_scope = (
-                target_emp.reporting_to == approver.id or
+                is_direct or
                 (approver.hierarchy_level == "zsm" and target_emp.zone == approver.zone) or
-                (approver.hierarchy_level in ["rsm", "manager"] and target_emp.territory == approver.territory)
+                (approver.hierarchy_level in ["rsm", "manager"] and (
+                    (target_emp.territory and target_emp.territory == approver.territory) or
+                    (target_emp.zone == approver.zone and target_emp.hierarchy_level == "be")
+                ))
             )
             if not in_scope:
                 raise HTTPException(
@@ -167,7 +206,7 @@ async def reject_leave(
                     detail="Not authorized to reject leave for employees outside your reporting hierarchy"
                 )
 
-    req.status = "Rejected"
+    req.status = "rejected"
     req.admin_note = body.admin_note if body else None
     req.approved_by = approver.id
 
